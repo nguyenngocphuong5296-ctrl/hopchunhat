@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Toán 7: Hình Hộp Chữ Nhật ABCDA'B'C'D'</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; background: #f0f3f5; }
+        #sidebar { width: 360px; background: white; padding: 20px; box-shadow: 5px 0 15px rgba(0,0,0,0.1); z-index: 10; overflow-y: auto; }
+        #canvas-container { flex: 1; position: relative; }
+        h2 { color: #2c3e50; border-bottom: 4px solid #e67e22; padding-bottom: 10px; font-size: 1.1rem; text-transform: uppercase; }
+        .control-group { margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #ddd; }
+        label { display: block; font-weight: bold; margin-bottom: 8px; color: #34495e; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .val-num { float: right; color: #e67e22; font-weight: bold; }
+        
+        /* Phần kiểm tra đường chéo */
+        .quiz-section { background: #fff3cd; padding: 15px; border-radius: 10px; border: 1px solid #ffeeba; margin-top: 15px; }
+        .quiz-input { width: 120px; padding: 8px; border: 2px solid #bdc3c7; border-radius: 5px; font-weight: bold; text-align: center; text-transform: uppercase; }
+        #quiz-result { font-weight: bold; margin-left: 10px; font-size: 1.1rem; }
+        .correct { color: #27ae60; }
+        .wrong { color: #e74c3c; }
+
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
+        .btn-unfold { background: #27ae60; color: white; }
+        .btn-reset { background: #3498db; color: white; }
+        
+        /* Nhãn đỉnh và số đo */
+        .label-3d { position: absolute; pointer-events: none; font-weight: bold; font-family: Arial; }
+        .vertex-label { color: #2c3e50; font-size: 18px; text-shadow: 1px 1px white; }
+        .measure-label { background: rgba(255,255,255,0.8); padding: 2px 5px; border: 1px solid #e67e22; border-radius: 3px; color: #e67e22; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h2>HÌNH HỘP ABCDA'B'C'D'</h2>
+    
+    <div class="control-group">
+        <label>Dài (a): <span id="valL" class="val-num">5</span></label>
+        <input type="range" id="length" min="3" max="8" step="0.5" value="5">
+        <label>Rộng (b): <span id="valW" class="val-num">3</span></label>
+        <input type="range" id="width" min="3" max="8" step="0.5" value="3">
+        <label>Cao (h): <span id="valH" class="val-num">4</span></label>
+        <input type="range" id="height" min="3" max="8" step="0.5" value="4">
+    </div>
+
+    <div class="quiz-section">
+        <label>Nhập một đường chéo:</label>
+        <input type="text" id="diagonalInput" class="quiz-input" placeholder="Ví dụ: AC'" oninput="checkDiagonal()">
+        <span id="quiz-result"></span>
+        <p style="font-size: 0.8rem; color: #666; margin-top: 10px;">(Gõ tên 2 đỉnh, ví dụ: AC' hoặc CA')</p>
+    </div>
+
+    <button class="btn-unfold" onclick="toggleUnfold()">TRẢI PHẲNG / ĐÓNG KHỐI</button>
+    <button class="btn-reset" onclick="resetView()">XOAY VỀ GÓC CHUẨN</button>
+</div>
+
+<div id="canvas-container"></div>
+
+<script>
+    let scene, camera, renderer, controls, mainGroup;
+    let isUnfolded = false;
+    let labels = [];
+
+    const diagonalList = ["AC'", "A'C", "DB'", "D'B", "C'A", "CA'", "B'D", "BD'"];
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f3f5);
+        camera = new THREE.PerspectiveCamera(45, (window.innerWidth - 360) / window.innerHeight, 0.1, 1000);
+        camera.position.set(12, 10, 12);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth - 360, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const light = new THREE.PointLight(0xffffff, 0.5);
+        light.position.set(10, 20, 10);
+        scene.add(light);
+
+        mainGroup = new THREE.Group();
+        scene.add(mainGroup);
+
+        updateModel();
+        animate();
+    }
+
+    function createFace(w, h, color) {
+        const g = new THREE.Group();
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshPhongMaterial({ color: color, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, h)), new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 }));
+        g.add(mesh, edges);
+        return g;
+    }
+
+    function addLabel(text, pos, type) {
+        const div = document.createElement('div');
+        div.className = `label-3d ${type}`;
+        div.innerHTML = text;
+        document.getElementById('canvas-container').appendChild(div);
+        labels.push({ element: div, position: pos });
+    }
+
+    function updateModel() {
+        while(mainGroup.children.length > 0) mainGroup.remove(mainGroup.children[0]);
+        labels.forEach(l => l.element.remove());
+        labels = [];
+
+        const a = parseFloat(document.getElementById('length').value);
+        const b = parseFloat(document.getElementById('width').value);
+        const h = parseFloat(document.getElementById('height').value);
+        document.getElementById('valL').innerText = a;
+        document.getElementById('valW').innerText = b;
+        document.getElementById('valH').innerText = h;
+
+        if (!isUnfolded) {
+            const fBot = createFace(a, b, 0x3498db); fBot.rotation.x = -Math.PI/2; fBot.position.y = -h/2;
+            const fTop = createFace(a, b, 0x3498db); fTop.rotation.x = -Math.PI/2; fTop.position.y = h/2;
+            const fFront = createFace(a, h, 0xe74c3c); fFront.position.z = b/2;
+            const fBack = createFace(a, h, 0xe74c3c); fBack.position.z = -b/2;
+            const fLeft = createFace(b, h, 0xf1c40f); fLeft.rotation.y = -Math.PI/2; fLeft.position.x = -a/2;
+            const fRight = createFace(b, h, 0xf1c40f); fRight.rotation.y = Math.PI/2; fRight.position.x = a/2;
+            mainGroup.add(fBot, fTop, fFront, fBack, fLeft, fRight);
+
+            // Đỉnh đen
+            const vGeo = new THREE.SphereGeometry(0.12);
+            const vMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const vPos = [
+                {p: [-a/2, -h/2, b/2], t: 'A'}, {p: [a/2, -h/2, b/2], t: 'B'}, {p: [a/2, -h/2, -b/2], t: 'C'}, {p: [-a/2, -h/2, -b/2], t: 'D'},
+                {p: [-a/2, h/2, b/2], t: "A'"}, {p: [a/2, h/2, b/2], t: "B'"}, {p: [a/2, h/2, -b/2], t: "C'"}, {p: [-a/2, h/2, -b/2], t: "D'"}
+            ];
+            vPos.forEach(v => {
+                const s = new THREE.Mesh(vGeo, vMat); s.position.set(...v.p); mainGroup.add(s);
+                addLabel(v.t, new THREE.Vector3(...v.p), 'vertex-label');
+            });
+
+            // Số đo
+            addLabel(`a=${a}`, new THREE.Vector3(0, -h/2, b/2 + 0.3), 'measure-label');
+            addLabel(`b=${b}`, new THREE.Vector3(a/2 + 0.3, -h/2, 0), 'measure-label');
+            addLabel(`h=${h}`, new THREE.Vector3(a/2 + 0.3, 0, b/2), 'measure-label');
+        } else {
+            // Trải phẳng
+            const nBot = createFace(a, b, 0x3498db); nBot.rotation.x = -Math.PI/2;
+            const nFr = createFace(a, h, 0xe74c3c); nFr.rotation.x = -Math.PI/2; nFr.position.z = b/2+h/2;
+            const nBk = createFace(a, h, 0xe74c3c); nBk.rotation.x = -Math.PI/2; nBk.position.z = -(b/2+h/2);
+            const nL = createFace(h, b, 0xf1c40f); nL.rotation.x = -Math.PI/2; nL.position.x = -(a/2+h/2);
+            const nR = createFace(h, b, 0xf1c40f); nR.rotation.x = -Math.PI/2; nR.position.x = a/2+h/2;
+            const nTp = createFace(a, b, 0x3498db); nTp.rotation.x = -Math.PI/2; nTp.position.z = -(b+h);
+            mainGroup.add(nBot, nFr, nBk, nL, nR, nTp);
+        }
+    }
+
+    function checkDiagonal() {
+        const val = document.getElementById('diagonalInput').value.trim().toUpperCase().replace(/'/g, "'");
+        const res = document.getElementById('quiz-result');
+        if (val === "") { res.innerHTML = ""; return; }
+        if (diagonalList.includes(val)) {
+            res.innerHTML = "ĐÚNG"; res.className = "correct";
+        } else {
+            res.innerHTML = "SAI"; res.className = "wrong";
+        }
+    }
+
+    function toggleUnfold() { isUnfolded = !isUnfolded; updateModel(); camera.position.set(isUnfolded?0:12, isUnfolded?18:10, isUnfolded?0.1:12); controls.update(); }
+    function resetView() { isUnfolded = false; updateModel(); camera.position.set(12, 10, 12); controls.update(); }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+        labels.forEach(l => {
+            const p = l.position.clone().project(camera);
+            const x = (p.x * 0.5 + 0.5) * (window.innerWidth - 360);
+            const y = (-(p.y * 0.5) + 0.5) * window.innerHeight;
+            l.element.style.left = x + 'px'; l.element.style.top = y + 'px';
+            l.element.style.display = p.z > 1 ? 'none' : 'block';
+        });
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = (window.innerWidth - 360) / window.innerHeight; camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth - 360, window.innerHeight);
+    });
+
+    document.querySelectorAll('input[type="range"]').forEach(i => i.addEventListener('input', updateModel));
+    init();
+</script>
+</body>
+</html>
